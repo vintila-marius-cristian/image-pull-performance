@@ -1,0 +1,14 @@
+apiVersion: v2
+name: artifactory-edge-exporter
+description: A Prometheus-compatible exporter to benchmark JFrog Artifactory edge-node vs origin download performance.
+type: application
+version: 0.1.0
+appVersion: "1.0.0" # Match your docker image version here
+keywords:
+  - prometheus
+  - exporter
+  - artifactory
+  - edge
+  - jfrog
+maintainers:
+  - name: cristi

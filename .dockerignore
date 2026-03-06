@@ -1,0 +1,13 @@
+venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+tests/
+docs/
+k8s/
+helm-chart/
+*.md
+.env*
+config.example.yaml
+alerts.yaml

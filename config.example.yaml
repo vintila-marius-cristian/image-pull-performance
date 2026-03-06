@@ -1,0 +1,22 @@
+server_port: 8080
+health_port: 8081
+jobs:
+  - name: "artifactory_benchmark"
+    edge_url_base: "https://edge-eu.jfrog.io/artifactory"
+    origin_url_base: "https://origin.jfrog.io/artifactory"
+    artifacts:
+      - "generic-local/benchmark/test-100m.bin"
+      - "generic-local/benchmark/test-250m.bin"
+    auth_method: "bearer"
+    password: "env:JFROG_TOKEN" # resolves from env var
+    timeout: 120
+    schedule_interval: 300
+    repeat_count: 5
+    warmup_runs: 1
+    cooldown_seconds: 1.0
+    cache_busting: true
+    tls_verify: true
+    labels:
+      site: "europe-central"
+      cluster: "k8s-eu-1"
+      region: "eu-central-1"

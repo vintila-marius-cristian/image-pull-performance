@@ -1,0 +1,17 @@
+{{- /* HTTP health check test */ -}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "artifactory-edge-exporter.fullname" . }}-test-connection"
+  labels:
+    {{- include "artifactory-edge-exporter.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "artifactory-edge-exporter.fullname" . }}:{{ .Values.service.healthPort | default 8081 }}/healthz']
+  restartPolicy: Never

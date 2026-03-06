@@ -1,0 +1,99 @@
+# Default values for artifactory-edge-exporter.
+
+replicaCount: 1
+
+image:
+  repository: myrepo/artifactory-edge-exporter
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  healthPort: 8081
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: health-port
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: health-port
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+env: []
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# Generates the exporter's config.yaml
+exporterConfig:
+  server_port: 8080
+  health_port: 8081
+  jobs:
+    - name: "artifactory_benchmark_example"
+      edge_url_base: "https://edge-eu.jfrog.io/artifactory"
+      origin_url_base: "https://origin.jfrog.io/artifactory"
+      artifacts:
+        - "generic-local/test.txt"
+      auth_method: "bearer"
+      password: "env:JFROG_TOKEN"
+      timeout: 30
+      schedule_interval: 60
+      repeat_count: 3
+      warmup_runs: 1
+      cooldown_seconds: 0.5
+      cache_busting: true
+
+secrets: {}
+existingSecret: ""
+
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  path: /metrics
+  port: metrics

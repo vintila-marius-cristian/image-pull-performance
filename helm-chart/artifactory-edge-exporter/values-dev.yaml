@@ -1,0 +1,37 @@
+# Override values for a Developer Environment
+replicaCount: 1
+
+image:
+  repository: myrepo/artifactory-edge-exporter
+  tag: "dev"
+  pullPolicy: Always
+
+# Provide basic config for testing
+exporterConfig:
+  server_port: 8080
+  health_port: 8081
+  jobs:
+    - name: "dev_benchmark"
+      edge_url_base: "https://dev-edge.jfrog.io/artifactory"
+      origin_url_base: "https://dev-origin.jfrog.io/artifactory"
+      artifact_path: "generic-local/test-payload.bin"
+      auth_method: "basic"
+      username: "admin"
+      password: "env:DEV_PASSWORD"
+      timeout: 15
+      schedule_interval: 30
+
+# Inject the password safely via environments & secrets
+env:
+  - name: DEV_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: my-dev-secret
+        key: password
+
+# We already have an external secret
+existingSecret: "my-dev-secret"
+
+# We don't need a serviceMonitor in local minikube/dev clusters usually
+serviceMonitor:
+  enabled: false

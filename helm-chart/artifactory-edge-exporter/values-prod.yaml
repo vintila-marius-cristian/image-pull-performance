@@ -1,0 +1,53 @@
+# Override values for Production Environment
+replicaCount: 2 # HA configuration
+
+image:
+  repository: prodrepo.internal/jfrog/artifactory-edge-exporter
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Assign pods to specific node pools
+nodeSelector:
+  type: monitoring
+
+# High priority jobs evaluating critical latency paths
+exporterConfig:
+  server_port: 8080
+  health_port: 8081
+  jobs:
+    - name: "prod_eu_benchmark"
+      edge_url_base: "https://edge-eu.jfrog.io/artifactory"
+      origin_url_base: "https://origin.jfrog.io/artifactory"
+      artifact_path: "generic-local/benchmark/prod-test-100m.bin"
+      auth_method: "bearer"
+      password: "env:JFROG_TOKEN"
+      timeout: 60
+      schedule_interval: 120
+      tls_verify: true
+      labels:
+        region: "eu"
+
+# Leverage standard GitOps / Prometheus Operator approach
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  labels:
+    release: prometheus # standard label used to dynamically load the ServiceMonitor
+
+# Map existing secrets from vault operator or sealed secrets
+env:
+  - name: JFROG_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: jfrog-prod-vault-secret
+        key: bearer-token
+
+existingSecret: jfrog-prod-vault-secret

@@ -1,0 +1,30 @@
+groups:
+  - name: artifactory-benchmarks
+    rules:
+      # Alert if edge is consistently slower than origin based on P95 calculations
+      - alert: ArtifactoryEdgeSlowerThanOrigin
+        expr: artifactory_edge_faster == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Edge node is slower than Origin"
+          description: "Job {{ $labels.job }} in region {{ $labels.region }} shows edge taking longer to download artifact {{ $labels.artifact }} than origin for 15 minutes."
+
+      - alert: ArtifactoryProbeFailing
+        expr: rate(artifactory_probe_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Artifactory probe failing"
+          description: "Job {{ $labels.job }} ({{ $labels.path_type }}) has consistent probe network/HTTP failures."
+
+      - alert: ArtifactoryEdgeHighLatency
+        expr: artifactory_run_avg_ttfb_seconds{path_type="edge"} > 1.0 # > 1 second TTFB
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Edge node shows extreme TTFB latency"
+          description: "Job {{ $labels.job }} (edge) average TTFB latency is severely degraded."

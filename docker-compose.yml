@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+version: "3.8"
+
+services:
+  artifactory-edge-exporter:
+    build: .
+    image: artifactory-edge-exporter:latest
+    container_name: artifactory-edge-exporter
+    ports:
+      - "8080:8080" # metrics port
+      - "8081:8081" # health port
+    volumes:
+      - ./config.example.yaml:/app/config/config.yaml:ro
+    environment:
+      - EXPORTER_CONFIG=/app/config/config.yaml
+      # Provide secrets here if needed:
+      # - JFROG_TOKEN=${JFROG_TOKEN}
+    restart: unless-stopped
