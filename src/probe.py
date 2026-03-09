@@ -91,9 +91,10 @@ def run_probe(job_config, session=None):
     cluster = labels.get('cluster', 'unknown')
     region = labels.get('region', 'unknown')
 
+    has_success = False
     for artifact in job_config.artifacts:
         logger.info(f"Targeting artifact ({job_config.repeat_count} runs): {artifact}")
-        
+
         edge_results = execute_cycle(job_config.edge_url_base, artifact, job_config, "edge", session=session)
         origin_results = execute_cycle(job_config.origin_url_base, artifact, job_config, "origin", session=session)
 
@@ -101,16 +102,18 @@ def run_probe(job_config, session=None):
         origin_agg = aggregate_and_record(job_config.name, site, cluster, region, "origin", artifact, origin_results)
 
         if edge_agg and origin_agg:
+            has_success = True
             comp_lbls = [job_config.name, site, cluster, region, artifact]
-            
+
             if origin_agg['avg_speed'] > 0:
                 metrics.edge_vs_origin_speed_ratio.labels(*comp_lbls).set(edge_agg['avg_speed'] / origin_agg['avg_speed'])
-            
+
             metrics.edge_vs_origin_latency_delta_seconds.labels(*comp_lbls).set(edge_agg['avg_ttfb'] - origin_agg['avg_ttfb'])
             metrics.edge_vs_origin_duration_delta_seconds.labels(*comp_lbls).set(edge_agg['avg_duration'] - origin_agg['avg_duration'])
             metrics.edge_faster.labels(*comp_lbls).set(1 if edge_agg['avg_duration'] < origin_agg['avg_duration'] else 0)
 
     cycle_duration = time.time() - cycle_start
     metrics.probe_cycle_duration_seconds.labels(job_config.name).set(cycle_duration)
-    metrics.probe_last_success_timestamp.labels(job_config.name).set(time.time())
+    if has_success:
+        metrics.probe_last_success_timestamp.labels(job_config.name).set(time.time())
     logger.info(f"Completed probe cycle for job: {job_config.name} in {cycle_duration:.2f}s")
