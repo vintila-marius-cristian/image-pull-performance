@@ -53,7 +53,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: health-port
   initialDelaySeconds: 5
   periodSeconds: 10
