@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import requests
 from src.config import JobConfig
-from src.client import download_artifact
+from src.client import download_artifact, create_session
 
 class TestClient(unittest.TestCase):
     def setUp(self):
@@ -130,6 +130,48 @@ class TestClient(unittest.TestCase):
 
         headers = mock_get.call_args[1]['headers']
         self.assertEqual(headers['Range'], 'bytes=0-1023')
+
+    @patch('src.client.requests.Session.get')
+    def test_download_artifact_uses_session(self, mock_session_get):
+        session = requests.Session()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = [b"data"]
+        mock_session_get.return_value.__enter__.return_value = mock_resp
+
+        res = download_artifact("http://edge", "test.bin", self.job, "edge", session=session)
+
+        self.assertTrue(res['success'])
+        mock_session_get.assert_called_once()
+
+
+class TestCreateSession(unittest.TestCase):
+    def setUp(self):
+        self.job = JobConfig({
+            "name": "test",
+            "edge_url_base": "http://edge",
+            "origin_url_base": "http://orig",
+            "artifacts": ["test.bin"],
+            "timeout": 5,
+        })
+
+    def test_create_session_returns_session(self):
+        session = create_session(self.job)
+        self.assertIsInstance(session, requests.Session)
+
+    def test_create_session_has_retry_adapter(self):
+        session = create_session(self.job)
+        adapter = session.get_adapter("https://example.com")
+        self.assertEqual(adapter.max_retries.total, 3)
+        self.assertIn(502, adapter.max_retries.status_forcelist)
+        self.assertIn(503, adapter.max_retries.status_forcelist)
+        self.assertIn(504, adapter.max_retries.status_forcelist)
+
+    def test_create_session_sets_tls_verify(self):
+        self.job.tls_verify = False
+        session = create_session(self.job)
+        self.assertFalse(session.verify)
+
 
 if __name__ == '__main__':
     unittest.main()

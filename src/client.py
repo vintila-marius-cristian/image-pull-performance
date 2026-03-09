@@ -1,11 +1,34 @@
 import time
 import uuid
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import logging
 
 logger = logging.getLogger("exporter.client")
 
-def download_artifact(base_url, artifact_path, job_config, path_type):
+def create_session(job_config):
+    """Create a requests.Session with connection pooling and retry for transient errors."""
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(
+        max_retries=retry,
+        pool_connections=10,
+        pool_maxsize=10,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.verify = job_config.tls_verify
+    return session
+
+
+def download_artifact(base_url, artifact_path, job_config, path_type, session=None):
     """
     Downloads an artifact rigorously. 
     Applies aggressive Cache-Busting explicitly to measure True delivery latency, not local Nginx buffering.
@@ -36,12 +59,13 @@ def download_artifact(base_url, artifact_path, job_config, path_type):
     error_class = None
 
     try:
-        with requests.get(
-            url, 
-            headers=headers, 
-            auth=auth, 
-            timeout=job_config.timeout, 
-            stream=True, 
+        http_get = session.get if session else requests.get
+        with http_get(
+            url,
+            headers=headers,
+            auth=auth,
+            timeout=job_config.timeout,
+            stream=True,
             verify=job_config.tls_verify
         ) as response:
             status_code = response.status_code
