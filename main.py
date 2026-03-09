@@ -6,6 +6,7 @@ from prometheus_client import start_http_server
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from src.config import load_config
 from src.probe import run_probe
+from src.client import create_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,10 +18,11 @@ _MAX_BACKOFF = 300  # seconds
 
 
 def job_loop(job):
+    session = create_session(job)
     consecutive_failures = 0
     while True:
         try:
-            run_probe(job)
+            run_probe(job, session=session)
             consecutive_failures = 0
             time.sleep(job.interval)
         except Exception as e:

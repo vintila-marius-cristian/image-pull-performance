@@ -19,11 +19,11 @@ def calculate_percentile(data, percentile):
     d1 = sorted_data[int(c)] * (k - f)
     return d0 + d1
 
-def execute_cycle(base_url, artifact_path, job_config, path_type):
+def execute_cycle(base_url, artifact_path, job_config, path_type, session=None):
     # Warmup runs (ignored metrics)
     for w in range(job_config.warmup_runs):
         logger.debug(f"[{job_config.name}] Warmup {w+1}/{job_config.warmup_runs} for {path_type}")
-        download_artifact(base_url, artifact_path, job_config, path_type)
+        download_artifact(base_url, artifact_path, job_config, path_type, session=session)
         if job_config.cooldown_seconds:
             time.sleep(job_config.cooldown_seconds)
             
@@ -31,7 +31,7 @@ def execute_cycle(base_url, artifact_path, job_config, path_type):
     results = []
     for r in range(job_config.repeat_count):
         logger.debug(f"[{job_config.name}] Run {r+1}/{job_config.repeat_count} for {path_type}")
-        res = download_artifact(base_url, artifact_path, job_config, path_type)
+        res = download_artifact(base_url, artifact_path, job_config, path_type, session=session)
         results.append(res)
         if r < job_config.repeat_count - 1 and job_config.cooldown_seconds:
             time.sleep(job_config.cooldown_seconds)
@@ -83,7 +83,7 @@ def aggregate_and_record(job_name, site, cluster, region, path_type, artifact, r
         "avg_speed": avg_speed,
     }
 
-def run_probe(job_config):
+def run_probe(job_config, session=None):
     logger.info(f"Starting probe benchmark cycle for job: {job_config.name}")
     labels = job_config.labels
     site = labels.get('site', 'unknown')
@@ -93,8 +93,8 @@ def run_probe(job_config):
     for artifact in job_config.artifacts:
         logger.info(f"Targeting artifact ({job_config.repeat_count} runs): {artifact}")
         
-        edge_results = execute_cycle(job_config.edge_url_base, artifact, job_config, "edge")
-        origin_results = execute_cycle(job_config.origin_url_base, artifact, job_config, "origin")
+        edge_results = execute_cycle(job_config.edge_url_base, artifact, job_config, "edge", session=session)
+        origin_results = execute_cycle(job_config.origin_url_base, artifact, job_config, "origin", session=session)
 
         edge_agg = aggregate_and_record(job_config.name, site, cluster, region, "edge", artifact, edge_results)
         origin_agg = aggregate_and_record(job_config.name, site, cluster, region, "origin", artifact, origin_results)
