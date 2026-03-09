@@ -20,7 +20,7 @@
 - **Readiness endpoint:** New `/readyz` endpoint checks probe thread liveness. Returns 200 with thread count if alive, 503 if all dead. Helm `readinessProbe` updated to use `/readyz`.
 - **Internal exporter metrics:** Added `artifactory_exporter_info` (Info, version=1.1.0), `artifactory_probe_cycle_duration_seconds` (Gauge per job), `artifactory_probe_last_success_timestamp` (Gauge per job).
 - **Documentation:** Comprehensive README rewrite with full feature list, all 21 metrics documented, configuration reference tables, endpoint reference, architecture overview.
-- **Tests:** 5 new config validation tests, 4 new client tests (session factory, session usage). Total: 31 tests, all passing.
+- **Tests:** 5 new config validation tests, 4 new client tests (session factory, session usage), 5 new health/readiness endpoint tests. Total: 36 tests, all passing.
 
 ## What Was Implemented (Production Hardening V1 — 2026-03-06)
 - **Docker:** Created `.dockerignore` (excludes `venv/`, `helm-chart/`, `k8s/`, etc.). Dockerfile now runs as non-root `appuser` (UID 1000) using `COPY --chown`. `PYTHONDONTWRITEBYTECODE=1` moved before `pip install`.
@@ -96,7 +96,7 @@ All fields with validation:
 4. Validate HTTP chunk delivery jitter.
 
 ## Testing Status
-- 31 unit tests covering: config validation (16 tests), client success/error paths + session factory (12 tests), probe orchestration + percentile math (3 tests).
+- 36 unit tests covering: config validation (16 tests), client success/error paths + session factory (12 tests), probe orchestration + percentile math (3 tests), health/readiness endpoints (5 tests).
 - All tests passing.
 - Requires live integration test suite for end-to-end validation.
 
