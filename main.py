@@ -1,4 +1,5 @@
 import logging
+import signal
 import time
 import threading
 import os
@@ -16,15 +17,19 @@ logger = logging.getLogger("exporter.main")
 
 _MAX_BACKOFF = 300  # seconds
 
+# Global state for health checks
+_probe_threads = []
+_stop_event = threading.Event()
 
-def job_loop(job):
+
+def job_loop(job, stop_event):
     session = create_session(job)
     consecutive_failures = 0
-    while True:
+    while not stop_event.is_set():
         try:
             run_probe(job, session=session)
             consecutive_failures = 0
-            time.sleep(job.interval)
+            stop_event.wait(timeout=job.interval)
         except Exception as e:
             consecutive_failures += 1
             backoff = min(job.interval * (2 ** (consecutive_failures - 1)), _MAX_BACKOFF)
@@ -33,22 +38,35 @@ def job_loop(job):
                 f"retrying in {backoff}s): {e}",
                 exc_info=True
             )
-            time.sleep(backoff)
+            stop_event.wait(timeout=backoff)
+    session.close()
+    logger.info(f"Probe thread for job {job.name} stopped cleanly")
 
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/healthz':
             self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
+            self.send_header('Content-Type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"OK")
+        elif self.path == '/readyz':
+            alive = [t for t in _probe_threads if t.is_alive()]
+            if alive:
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(f"{len(alive)}/{len(_probe_threads)} probe threads alive".encode())
+            else:
+                self.send_response(503)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b"No probe threads alive")
         else:
             self.send_response(404)
             self.end_headers()
 
     def log_message(self, format, *args):
-        # Suppress per-request access logs — healthz is hit every 10s by k8s
         pass
 
 
@@ -67,26 +85,37 @@ def main():
     logger.info(f"Prometheus metrics exposed on port {cfg['port']}")
 
     health_port = cfg.get('health_port', 8081)
-    start_health_server(health_port)
-    logger.info(f"Healthz server running on port {health_port}")
+    health_server = start_health_server(health_port)
+    logger.info(f"Health server running on port {health_port} (/healthz, /readyz)")
 
-    threads = []
+    global _probe_threads
     for job in cfg['jobs']:
         t = threading.Thread(
             target=job_loop,
-            args=(job,),
+            args=(job, _stop_event),
             daemon=True,
             name=f"probe-{job.name}"
         )
         t.start()
-        threads.append(t)
-        logger.info(f"Started thread for job: {job.name} (interval: {job.interval}s)")
+        _probe_threads.append(t)
+        logger.info(f"Started probe thread: {job.name} (interval: {job.interval}s)")
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
+    def shutdown(signum, frame):
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, shutting down gracefully...")
+        _stop_event.set()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    _stop_event.wait()
+
+    # Give probe threads time to finish current cycle
+    for t in _probe_threads:
+        t.join(timeout=5)
+
+    health_server.shutdown()
+    logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":
