@@ -10,103 +10,124 @@
 ---
 
 ## Current Objective
-**COMPLETED** — Production hardening pass (2026-03-06). All 15 identified production readiness gaps resolved. See `docs/plans/2026-03-06-production-hardening.md` for the full plan.
+**COMPLETED** — Production hardening V2 (2026-03-09). All remaining production readiness gaps resolved. See `docs/plans/2026-03-09-production-hardening-v2.md` for the full plan.
 
-## What Was Implemented (Latest — Production Hardening)
+## What Was Implemented (Latest — Production Hardening V2)
+- **HTTP session pooling:** `create_session()` factory in `client.py` creates a `requests.Session` with `HTTPAdapter` (pool_connections=10, pool_maxsize=10). TCP/TLS connections reused per job thread.
+- **Automatic retry:** `urllib3.util.retry.Retry` configured for 502/503/504 with 3 retries and 0.5s exponential backoff. Applied via `HTTPAdapter.max_retries`.
+- **Extended config validation:** `timeout > 0`, `schedule_interval > 0`, `warmup_runs >= 0`, `cooldown_seconds >= 0` now validated at startup with clear `ValueError` messages.
+- **Graceful shutdown:** `threading.Event` replaces `while True`. SIGTERM/SIGINT handlers set the stop event. `job_loop` uses `stop_event.wait(timeout=...)` instead of `time.sleep()`. Threads joined with 5s timeout on shutdown. Sessions closed cleanly.
+- **Readiness endpoint:** New `/readyz` endpoint checks probe thread liveness. Returns 200 with thread count if alive, 503 if all dead. Helm `readinessProbe` updated to use `/readyz`.
+- **Internal exporter metrics:** Added `artifactory_exporter_info` (Info, version=1.1.0), `artifactory_probe_cycle_duration_seconds` (Gauge per job), `artifactory_probe_last_success_timestamp` (Gauge per job).
+- **Documentation:** Comprehensive README rewrite with full feature list, all 21 metrics documented, configuration reference tables, endpoint reference, architecture overview.
+- **Tests:** 5 new config validation tests, 4 new client tests (session factory, session usage). Total: 31 tests, all passing.
+
+## What Was Implemented (Production Hardening V1 — 2026-03-06)
 - **Docker:** Created `.dockerignore` (excludes `venv/`, `helm-chart/`, `k8s/`, etc.). Dockerfile now runs as non-root `appuser` (UID 1000) using `COPY --chown`. `PYTHONDONTWRITEBYTECODE=1` moved before `pip install`.
 - **Config hardening:** `_resolve_secret` fixed (`val[4:]` / `val[5:]` instead of fragile `.split()`). `_validate()` added — raises `ValueError` on missing URLs, empty artifacts, `repeat_count < 1`. `load_config` raises if no jobs defined. Missing env/file secrets now emit `logger.warning` instead of silently returning `""`.
 - **Code quality:** Unused `Summary` import removed from `metrics.py`. `calculate_percentile` uses `sorted()` (no in-place mutation). `transfer_size_bytes` now averages all successful runs instead of using `successes[0]`.
-- **main.py:** Threads named (`probe-{job.name}`, `health-server`). `HealthHandler.log_message` suppressed (no more per-request stdout noise). Exponential backoff added to `job_loop` (`min(interval * 2^failures, 300s)`).
+- **main.py:** Threads named (`probe-{job.name}`, `health-server`). `HealthHandler.log_message` suppressed. Exponential backoff added to `job_loop`.
 - **Dependencies:** `requests` bumped from `2.31.0` to `2.32.3` (CVE fix for auth header leak on redirects).
-- **Helm:** `podSecurityContext` (`runAsNonRoot`, `runAsUser: 1000`, `fsGroup: 1000`), `securityContext` (`allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `capabilities.drop: ALL`), `readinessProbe` added as defaults. Helm template syntax bug in `configmap.yaml` fixed.
-- **Tests:** Added `tests/test_config.py` (11 tests), 6 new error-path tests in `test_client.py`, 1 mutation test in `test_probe.py`. Total: 22 tests, all passing.
+- **Helm:** `podSecurityContext`, `securityContext`, `readinessProbe` added as defaults. Helm template syntax bug in `configmap.yaml` fixed.
 
-## What Was Implemented (Previous)
-- Transitioned purely to **Mode 1: Artifact download benchmark**. This is technically honest, tests real HTTP transfer semantics against edge vs origin via direct pulls, and fully controls caching without assuming `containerd` node isolation works magically.
-- Added explicit cache-busting logic (appending `?nocache=<uuid>` and `Cache-Control` headers) to the `requests` loops to guarantee remote retrieval.
-- Modified `config.py` to support `artifacts` list, `warmup_runs`, `repeat_count`, and `cooldown_seconds`.
-- Refactored `probe.py` to aggregate statistics (min, max, avg, P95) across `repeat_count` runs instead of just exporting a single execution context.
-- Exposed new advanced Aggregation metrics in `metrics.py`.
-- Wrote unit tests in `tests/` leveraging `unittest.mock`.
-- Updated Helm chart structures and `values.yaml` natively.
+## What Was Implemented (Initial — Artifact Download Benchmark)
+- **Mode 1: Artifact download benchmark** with explicit cache-busting logic.
+- `config.py` supports `artifacts` list, `warmup_runs`, `repeat_count`, `cooldown_seconds`.
+- `probe.py` aggregates statistics (min, max, avg, P95) across repeat runs.
+- Advanced aggregation and comparison metrics in `metrics.py`.
+- Unit tests leveraging `unittest.mock`.
+- Helm chart with ServiceMonitor, ConfigMap, Secret support.
 
 ## Architecture Summary
-- `main.py`: Entrypoint daemon scheduling threads per-job. Validates Kubernetes Health endpoints (`8081`) and exposes Prometheus Metrics (`8080`).
-- `config.py`: Parses declarative job configuration dynamically supporting encrypted Secret mapping via `$ENV` formats.
-- `client.py`: Python `requests`-based streaming iterator. Measures actual TTFB (Time to First Byte, strictly based on the first iteration chunk returning) and total duration incrementally. It skips memory bloat by flushing stream iterators instantly.
-- `probe.py`: Orchestrates Warmups, then Measurement runs. Calculates mathematically honest standard deviations / percentiles across arrays of success/failures, then computes the Edge vs Origin Latency Deltas natively.
+- `main.py`: Entry point daemon. Schedules one thread per job. Handles SIGTERM/SIGINT for graceful shutdown. Serves `/healthz` (liveness) and `/readyz` (readiness) on port 8081. Exposes Prometheus metrics on port 8080.
+- `config.py`: Parses YAML config with secret resolution (`env:`, `file:`, literal). Validates all fields at startup.
+- `client.py`: `requests.Session`-based streaming HTTP client with connection pooling and urllib3 retry. Measures TTFB and throughput per download.
+- `probe.py`: Orchestrates warmup + measurement runs. Calculates percentiles. Records per-artifact and comparison metrics. Tracks cycle duration and last success timestamp.
+- `metrics.py`: All Prometheus metric definitions — 14 per-artifact, 4 comparison, 3 internal.
 
 ## Configuration Model
-Newly added fields:
-- `artifacts` (List of strings): replacing the singular `artifact_path` string.
-- `warmup_runs` (int): Number of discarded runs to spool up network routes/DNS prior to measuring.
-- `repeat_count` (int): Number of real samples taken per cycle.
-- `cooldown_seconds` (float): Sleep time between repetitive loops.
-- `cache_busting` (bool): Defaults to True. Adds aggressive no-cache headers and URL query timestamps.
+All fields with validation:
+- `edge_url_base` (string, **required**): Base URL for edge Artifactory.
+- `origin_url_base` (string, **required**): Base URL for origin Artifactory.
+- `artifacts` (list[string], **required**): Artifact paths to benchmark.
+- `auth_method` (string, default `"none"`): `"bearer"`, `"basic"`, or `"none"`.
+- `username` / `password` (string): Supports `env:VAR`, `file:/path`, or literal.
+- `timeout` (int, default 30, must be > 0): HTTP request timeout in seconds.
+- `schedule_interval` (int, default 60, must be > 0): Seconds between probe cycles.
+- `repeat_count` (int, default 1, must be >= 1): Measurement runs per cycle.
+- `warmup_runs` (int, default 0, must be >= 0): Discarded warmup runs.
+- `cooldown_seconds` (float, default 0.5, must be >= 0): Sleep between runs.
+- `cache_busting` (bool, default true): Cache-busting headers and query params.
+- `tls_verify` (bool, default true): TLS certificate verification.
+- `max_bytes` (int, optional): Limit download via HTTP Range header.
+- `labels` (dict): Custom `site`, `cluster`, `region` labels.
+- `extra_headers` (dict): Additional HTTP headers.
 
 ## Deployment Model
 - Standard Kubernetes `Deployment` using Helm.
-- Exporter config natively populated via a ConfigMap volume mount to `/app/config/config.yaml`.
-- Secrets mapped securely using Pod environment variables, never hardcoded in configs.
-- Helm natively orchestrates `ServiceMonitor` resources to plug into Prometheus Operators dynamically.
+- Exporter config via ConfigMap volume mount to `/app/config/config.yaml`.
+- Secrets via Pod environment variables or file mounts.
+- Helm `ServiceMonitor` for Prometheus Operator integration.
+- Liveness: `/healthz` (always 200). Readiness: `/readyz` (checks thread liveness).
 
 ## Known Issues
-- `requests` lacks native access to `DNS/TCP connect TLS Handshake` durations without highly complex `urllib3` subclassing or PycURL native modules. Therefore TTFB is the closest accurate benchmark available for "Connection Spool to byte delivery".
-- Concurrency limit is bounded by Python's Global Interpreter Lock (GIL) as threading is used. AsyncIO (`httpx`) rewrite is recommended if scaling to hundreds of jobs.
+- `requests` lacks native DNS/TCP/TLS handshake duration metrics. TTFB is the closest available benchmark.
+- Concurrency bounded by Python GIL. AsyncIO (`httpx`) rewrite recommended for hundreds of jobs.
 
 ## Assumptions Made
-- We assume HA Artifactory reverse proxies (Nginx/HAproxy) do NOT strip dynamic `?nocache` parameters from backend requests aggressively.
-- We assume standard Prometheus Operator scraping intervals (15s/30s) are wide enough to capture internal Python `prometheus_client` Registries.
+- HA Artifactory reverse proxies do NOT strip `?nocache` query parameters.
+- Standard Prometheus Operator scraping intervals (15s/30s) are sufficient.
 
 ## Open Questions
-- Should we migrate to `pycurl` purely for deeper DNS and raw TCP-layer metrics, sacrificing easy cross-platform compatibility?
-- Is AQL (Artifactory Query Language) random artifact discovery critical for Phase 3?
+- Should we migrate to `pycurl` for deeper DNS/TCP-layer metrics?
+- Is AQL random artifact discovery critical for Phase 3?
 
 ## Technical Debt
-- Single file structural parsing in `client.py` catches broad `requests.exceptions.RequestException`. A more robust HTTP parser capturing specific 502/504 errors mapping to discrete prometheus counters is needed.
-- No integrated Artifactory API structural verification. It assumes HTTP `2xx` equates to functional success.
-- `_resolve_secret` in `config.py` returns `""` for unresolved secrets (with a warning log). Operator is responsible for ensuring env vars are set before startup.
-- `timeout` and `schedule_interval` fields are not range-validated in `_validate()`. Invalid values (0, negative) are accepted and fail at runtime.
-- `readOnlyRootFilesystem: true` in Helm assumes the app never writes to the container filesystem at runtime. `/tmp` is not mounted as an `emptyDir`. Validate this holds with integration testing.
-- Test `test_env_prefix_with_colon_in_var_name_does_not_break` in `test_config.py` does not actually exercise a colon-containing env var name — the test name is misleading.
-- `startupProbe` not defined in Helm — consider adding if probe initialization takes more than 5s.
+- No integrated Artifactory API structural verification. Assumes HTTP `2xx` = success.
+- `_resolve_secret` returns `""` for unresolved secrets (with warning). Operator must ensure env vars are set.
+- `readOnlyRootFilesystem: true` in Helm assumes no filesystem writes. `/tmp` not mounted as `emptyDir`.
+- Test `test_env_prefix_with_colon_in_var_name_does_not_break` name is misleading — doesn't test colon-containing env var names.
+- `startupProbe` not defined in Helm — consider adding if probe initialization exceeds 5s.
 
 ## Next Recommended Steps
-1. Implement AQL automated discovery for random target generation to simulate zero-day cache conditions strictly.
-2. Refactor to `asyncio` and `httpx` for scaling to thousands of parallel benchmarks.
-3. Validate HTTP Chunk delivery jitter.
+1. Implement AQL automated discovery for random target generation.
+2. Refactor to `asyncio` and `httpx` for scaling.
+3. Add integration test suite with mocked Nginx proxy.
+4. Validate HTTP chunk delivery jitter.
 
 ## Testing Status
-- 22 unit tests covering: config loading/validation, secret resolution, client success/error paths (timeout, connection error, HTTP errors, auth, range headers), probe orchestration, percentile math.
-- Requires live integration test suite standing up a mocked Nginx proxy that mimics JFrog Edge routing.
+- 31 unit tests covering: config validation (16 tests), client success/error paths + session factory (12 tests), probe orchestration + percentile math (3 tests).
+- All tests passing.
+- Requires live integration test suite for end-to-end validation.
 
 ## Production Readiness Status
-- **Ready for production rollout.** Non-root container, validated config startup, secret warnings, exponential retry backoff, Helm security contexts + readiness probe, and comprehensive unit test coverage.
+- **Ready for production rollout.** Non-root container, full config validation at startup, secret resolution with warnings, HTTP session pooling with retry, exponential backoff, graceful SIGTERM shutdown, `/healthz` + `/readyz` endpoints, Helm security contexts, internal exporter metrics, and comprehensive unit test coverage.
 
 ## Instructions for Next Agent
-- Review the `values.yaml` Helm chart to understand how `config.py` imports secret targets.
+- Review `values.yaml` to understand how `config.py` imports secret targets.
 - Do not modify `.fullname` macros in Helm without verifying test suites.
+- Run `python -m pytest tests/ -v` before any changes.
 
-## Validation Checklist (Example Commands)
+## Validation Checklist
 ```bash
 # Local tests
-python -m unittest discover -s tests
+python -m pytest tests/ -v
 
 # Validate Helm
 helm lint helm-chart/artifactory-edge-exporter/
 helm template test helm-chart/artifactory-edge-exporter/ -f helm-chart/artifactory-edge-exporter/values-dev.yaml
 
 # Run Locally (Python)
-# First, create and activate a virtual environment
-python3 -m venv venv
-source venv/bin/activate
-# Note: If your custom shell prompt (e.g. Starship/ZSH) hides the (venv) indicator, 
-# you can verify the python path by typing `which python` or run it directly via `./venv/bin/python`.
-
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export EXPORTER_CONFIG=config.example.yaml
 python main.py
 
 # Run Locally (Docker Compose)
 docker-compose up -d
+
+# Verify endpoints
+curl http://localhost:8081/healthz   # expect 200 OK
+curl http://localhost:8081/readyz    # expect 200 with thread count
+curl http://localhost:8080/metrics   # expect Prometheus metrics
 ```
