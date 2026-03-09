@@ -61,6 +61,14 @@ class JobConfig:
             raise ValueError(f"Job '{self.name}': artifacts list must not be empty")
         if self.repeat_count < 1:
             raise ValueError(f"Job '{self.name}': repeat_count must be >= 1, got {self.repeat_count}")
+        if self.timeout <= 0:
+            raise ValueError(f"Job '{self.name}': timeout must be > 0, got {self.timeout}")
+        if self.interval <= 0:
+            raise ValueError(f"Job '{self.name}': schedule_interval must be > 0, got {self.interval}")
+        if self.warmup_runs < 0:
+            raise ValueError(f"Job '{self.name}': warmup_runs must be >= 0, got {self.warmup_runs}")
+        if self.cooldown_seconds < 0:
+            raise ValueError(f"Job '{self.name}': cooldown_seconds must be >= 0, got {self.cooldown_seconds}")
 
 
 def load_config(path="config.yaml"):

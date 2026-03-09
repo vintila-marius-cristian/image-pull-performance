@@ -80,6 +80,31 @@ class TestJobConfigValidation(unittest.TestCase):
             self._make_job(repeat_count=-1)
         self.assertIn("repeat_count", str(ctx.exception))
 
+    def test_timeout_zero_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._make_job(timeout=0)
+        self.assertIn("timeout", str(ctx.exception))
+
+    def test_timeout_negative_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._make_job(timeout=-5)
+        self.assertIn("timeout", str(ctx.exception))
+
+    def test_schedule_interval_zero_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._make_job(schedule_interval=0)
+        self.assertIn("schedule_interval", str(ctx.exception))
+
+    def test_warmup_runs_negative_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._make_job(warmup_runs=-1)
+        self.assertIn("warmup_runs", str(ctx.exception))
+
+    def test_cooldown_seconds_negative_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._make_job(cooldown_seconds=-0.5)
+        self.assertIn("cooldown_seconds", str(ctx.exception))
+
     def test_valid_config_does_not_raise(self):
         job = self._make_job()  # should not raise
         self.assertEqual(job.name, "test")
