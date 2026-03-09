@@ -84,6 +84,7 @@ def aggregate_and_record(job_name, site, cluster, region, path_type, artifact, r
     }
 
 def run_probe(job_config, session=None):
+    cycle_start = time.time()
     logger.info(f"Starting probe benchmark cycle for job: {job_config.name}")
     labels = job_config.labels
     site = labels.get('site', 'unknown')
@@ -108,3 +109,8 @@ def run_probe(job_config, session=None):
             metrics.edge_vs_origin_latency_delta_seconds.labels(*comp_lbls).set(edge_agg['avg_ttfb'] - origin_agg['avg_ttfb'])
             metrics.edge_vs_origin_duration_delta_seconds.labels(*comp_lbls).set(edge_agg['avg_duration'] - origin_agg['avg_duration'])
             metrics.edge_faster.labels(*comp_lbls).set(1 if edge_agg['avg_duration'] < origin_agg['avg_duration'] else 0)
+
+    cycle_duration = time.time() - cycle_start
+    metrics.probe_cycle_duration_seconds.labels(job_config.name).set(cycle_duration)
+    metrics.probe_last_success_timestamp.labels(job_config.name).set(time.time())
+    logger.info(f"Completed probe cycle for job: {job_config.name} in {cycle_duration:.2f}s")

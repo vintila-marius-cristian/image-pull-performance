@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Info
 
 LABELS = ['job', 'site', 'cluster', 'region', 'path_type', 'artifact']
 COMP_LABELS = ['job', 'site', 'cluster', 'region', 'artifact']
@@ -28,3 +28,20 @@ edge_vs_origin_speed_ratio = Gauge('artifactory_edge_vs_origin_speed_ratio', 'Ed
 edge_vs_origin_latency_delta_seconds = Gauge('artifactory_edge_vs_origin_latency_delta_seconds', 'Edge avg TTFB - Origin avg TTFB', COMP_LABELS)
 edge_vs_origin_duration_delta_seconds = Gauge('artifactory_edge_vs_origin_duration_delta_seconds', 'Edge avg duration - Origin avg duration', COMP_LABELS)
 edge_faster = Gauge('artifactory_edge_faster', '1 if edge avg duration < origin avg duration', COMP_LABELS)
+
+# Internal exporter metrics
+INTERNAL_LABELS = ['job']
+
+exporter_info = Info('artifactory_exporter', 'Artifactory Edge Exporter build information')
+exporter_info.info({'version': '1.1.0'})
+
+probe_cycle_duration_seconds = Gauge(
+    'artifactory_probe_cycle_duration_seconds',
+    'Duration of a complete probe cycle for a job',
+    INTERNAL_LABELS
+)
+probe_last_success_timestamp = Gauge(
+    'artifactory_probe_last_success_timestamp',
+    'Unix timestamp of the last successful probe cycle',
+    INTERNAL_LABELS
+)
